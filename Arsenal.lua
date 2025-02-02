@@ -51,7 +51,7 @@ MainTab:CreateToggle({
 local CombatTab = Window:CreateTab("Combat", 4483362458)
 local CombatSection = CombatTab:CreateSection("Combat Features")
 
--- Enhanced aimbot with customization
+-- Fixed Advanced Aimbot with strict team check
 CombatTab:CreateToggle({
     Name = "Advanced Aimbot",
     CurrentValue = false,
@@ -61,7 +61,8 @@ CombatTab:CreateToggle({
             Sensitivity = 0.5,
             LockTarget = true,
             PredictMovement = true,
-            TargetPart = "Head"
+            TargetPart = "Head",
+            TeamCheck = true
         }
         
         game:GetService("RunService").RenderStepped:Connect(function()
@@ -70,12 +71,18 @@ CombatTab:CreateToggle({
                 local target = nil
                 
                 for _, player in pairs(game.Players:GetPlayers()) do
-                    if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild(getgenv().AimbotSettings.TargetPart) then
-                        local pos = workspace.CurrentCamera:WorldToScreenPoint(player.Character[getgenv().AimbotSettings.TargetPart].Position)
-                        local magnitude = (Vector2.new(pos.X, pos.Y) - Vector2.new(game.Players.LocalPlayer:GetMouse().X, game.Players.LocalPlayer:GetMouse().Y)).magnitude
+                    if player ~= game.Players.LocalPlayer and 
+                       player.Character and 
+                       player.Character:FindFirstChild("Humanoid") and 
+                       player.Character.Humanoid.Health > 0 and
+                       player.Character:FindFirstChild(getgenv().AimbotSettings.TargetPart) and
+                       player.Team ~= game.Players.LocalPlayer.Team then
                         
-                        if magnitude < closest then
-                            closest = magnitude
+                        local screenPoint = workspace.CurrentCamera:WorldToScreenPoint(player.Character[getgenv().AimbotSettings.TargetPart].Position)
+                        local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - Vector2.new(game.Players.LocalPlayer:GetMouse().X, game.Players.LocalPlayer:GetMouse().Y)).Magnitude
+                        
+                        if distance < closest then
+                            closest = distance
                             target = player.Character[getgenv().AimbotSettings.TargetPart]
                         end
                     end
@@ -86,7 +93,12 @@ CombatTab:CreateToggle({
                     if getgenv().AimbotSettings.PredictMovement then
                         pos = pos + (target.Velocity * 0.165)
                     end
-                    workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, pos)
+                    
+                    local targetPos = workspace.CurrentCamera:WorldToViewportPoint(pos)
+                    local mousePos = Vector2.new(game.Players.LocalPlayer:GetMouse().X, game.Players.LocalPlayer:GetMouse().Y)
+                    local moveVector = (Vector2.new(targetPos.X, targetPos.Y) - mousePos) * getgenv().AimbotSettings.Sensitivity
+                    
+                    mousemoverel(moveVector.X, moveVector.Y)
                 end
             end
         end)
@@ -123,12 +135,18 @@ CombatTab:CreateToggle({
             local args = {...}
             local method = getnamecallmethod()
             
-            if getgenv().SilentAim and method == "FindPartOnRayWithIgnoreList" and math.random(1, 100) <= getgenv().SilentAimSettings.HitChance then
+            if getgenv().SilentAim and method == "FindPartOnRayWithIgnoreList" then
                 local closest = math.huge
                 local target = nil
                 
                 for _, player in pairs(game.Players:GetPlayers()) do
-                    if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild(getgenv().SilentAimSettings.TargetPart) then
+                    if player ~= game.Players.LocalPlayer and 
+                       player.Team ~= game.Players.LocalPlayer.Team and 
+                       player.Character and 
+                       player.Character:FindFirstChild("Humanoid") and 
+                       player.Character.Humanoid.Health > 0 and 
+                       player.Character:FindFirstChild(getgenv().SilentAimSettings.TargetPart) then
+                        
                         local pos = workspace.CurrentCamera:WorldToScreenPoint(player.Character[getgenv().SilentAimSettings.TargetPart].Position)
                         local magnitude = (Vector2.new(pos.X, pos.Y) - Vector2.new(game.Players.LocalPlayer:GetMouse().X, game.Players.LocalPlayer:GetMouse().Y)).magnitude
                         
@@ -139,7 +157,7 @@ CombatTab:CreateToggle({
                     end
                 end
                 
-                if target then
+                if target and math.random(1, 100) <= getgenv().SilentAimSettings.HitChance then
                     args[2] = Ray.new(workspace.CurrentCamera.CFrame.Position, (target.Position - workspace.CurrentCamera.CFrame.Position).Unit * 1000)
                 end
             end
@@ -269,14 +287,16 @@ CombatTab:CreateToggle({
         getgenv().RapidFire = Value
         
         local mt = getrawmetatable(game)
-        local oldIndex = mt.__index
         setreadonly(mt, false)
+        local old = mt.__index
         
         mt.__index = newcclosure(function(self, k)
-            if getgenv().RapidFire and k == "FireRate" then
-                return 0.001
+            if getgenv().RapidFire then
+                if k == "FireRate" or k == "AutoRate" or k == "ReloadTime" then
+                    return 0
+                end
             end
-            return oldIndex(self, k)
+            return old(self, k)
         end)
         
         setreadonly(mt, true)
@@ -335,6 +355,7 @@ UpdatePlayerList()
 game.Players.PlayerAdded:Connect(UpdatePlayerList)
 game.Players.PlayerRemoving:Connect(UpdatePlayerList)
 
+-- Fixed Target Lock with strict team check
 TargetTab:CreateToggle({
     Name = "Lock On Target",
     CurrentValue = false,
@@ -345,7 +366,13 @@ TargetTab:CreateToggle({
             task.wait()
             if SelectedPlayer then
                 local target = game.Players:FindFirstChild(SelectedPlayer)
-                if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                if target and 
+                   target.Team ~= game.Players.LocalPlayer.Team and
+                   target.Character and 
+                   target.Character:FindFirstChild("Humanoid") and
+                   target.Character.Humanoid.Health > 0 and
+                   target.Character:FindFirstChild("HumanoidRootPart") then
+                    
                     workspace.CurrentCamera.CFrame = CFrame.new(
                         workspace.CurrentCamera.CFrame.Position,
                         target.Character.HumanoidRootPart.Position
@@ -401,16 +428,21 @@ GunModsTab:CreateToggle({
     Flag = "InfiniteAmmo",
     Callback = function(Value)
         getgenv().InfiniteAmmo = Value
+        
         local mt = getrawmetatable(game)
-        local oldIndex = mt.__index
         setreadonly(mt, false)
+        local old = mt.__index
         
         mt.__index = newcclosure(function(self, k)
-            if getgenv().InfiniteAmmo and k == "Ammo" then
-                return math.huge
+            if getgenv().InfiniteAmmo then
+                if k == "Ammo" or k == "StoredAmmo" then
+                    return 999
+                end
             end
-            return oldIndex(self, k)
+            return old(self, k)
         end)
+        
+        setreadonly(mt, true)
     end,
 })
 
@@ -420,19 +452,22 @@ GunModsTab:CreateToggle({
     Flag = "NoRecoil",
     Callback = function(Value)
         getgenv().NoRecoil = Value
+        
         local mt = getrawmetatable(game)
-        local oldNamecall = mt.__namecall
         setreadonly(mt, false)
+        local old = mt.__namecall
         
         mt.__namecall = newcclosure(function(self, ...)
             local args = {...}
             local method = getnamecallmethod()
             
-            if getgenv().NoRecoil and method == "FireServer" and args[1] == "Recoil" then
+            if getgenv().NoRecoil and method == "FireServer" and args[1] == "RecoilCamera" then
                 return
             end
-            return oldNamecall(self, ...)
+            return old(self, ...)
         end)
+        
+        setreadonly(mt, true)
     end,
 })
 
@@ -442,16 +477,21 @@ GunModsTab:CreateToggle({
     Flag = "NoSpread",
     Callback = function(Value)
         getgenv().NoSpread = Value
+        
         local mt = getrawmetatable(game)
-        local oldIndex = mt.__index
         setreadonly(mt, false)
+        local old = mt.__index
         
         mt.__index = newcclosure(function(self, k)
-            if getgenv().NoSpread and k == "Spread" then
-                return 0
+            if getgenv().NoSpread then
+                if k == "Spread" or k == "MaxSpread" or k == "MinSpread" then
+                    return 0
+                end
             end
-            return oldIndex(self, k)
+            return old(self, k)
         end)
+        
+        setreadonly(mt, true)
     end,
 })
 
@@ -602,14 +642,26 @@ CombatTab:CreateToggle({
     Flag = "AutoShoot",
     Callback = function(Value)
         getgenv().AutoShoot = Value
-        while getgenv().AutoShoot do
-            task.wait()
-            if game.Players.LocalPlayer:GetMouse().Target and 
-               game.Players.LocalPlayer:GetMouse().Target.Parent and 
-               game.Players.LocalPlayer:GetMouse().Target.Parent:FindFirstChild("Humanoid") then
-                mouse1click()
+        
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if getgenv().AutoShoot then
+                local mouse = game.Players.LocalPlayer:GetMouse()
+                if mouse.Target and mouse.Target.Parent then
+                    local character = mouse.Target.Parent
+                    local humanoid = character:FindFirstChild("Humanoid")
+                    local player = game.Players:GetPlayerFromCharacter(character)
+                    
+                    if player and 
+                       player.Team ~= game.Players.LocalPlayer.Team and 
+                       humanoid and 
+                       humanoid.Health > 0 then
+                        mouse1press()
+                        task.wait(0.01)
+                        mouse1release()
+                    end
+                end
             end
-        end
+        end)
     end,
 })
 
@@ -637,7 +689,7 @@ CombatTab:CreateToggle({
     end,
 })
 
--- Advanced Aim Assist
+-- Fixed Smooth Aim with strict team check
 CombatTab:CreateToggle({
     Name = "Smooth Aim",
     CurrentValue = false,
@@ -647,7 +699,8 @@ CombatTab:CreateToggle({
         getgenv().SmoothAimSettings = {
             Smoothness = 0.5,
             FOV = 100,
-            TargetPart = "Head"
+            TargetPart = "Head",
+            TeamCheck = true
         }
         
         game:GetService("RunService").RenderStepped:Connect(function()
@@ -659,6 +712,8 @@ CombatTab:CreateToggle({
                     if player ~= game.Players.LocalPlayer and 
                        player.Team ~= game.Players.LocalPlayer.Team and 
                        player.Character and 
+                       player.Character:FindFirstChild("Humanoid") and 
+                       player.Character.Humanoid.Health > 0 and
                        player.Character:FindFirstChild(getgenv().SmoothAimSettings.TargetPart) then
                         
                         local screenPoint = workspace.CurrentCamera:WorldToScreenPoint(player.Character[getgenv().SmoothAimSettings.TargetPart].Position)
@@ -825,15 +880,45 @@ CombatTab:CreateToggle({
     Flag = "HitboxExpander",
     Callback = function(Value)
         getgenv().HitboxExpander = Value
-        while getgenv().HitboxExpander do
-            task.wait()
+        
+        -- Reset all hitboxes when disabled
+        if not Value then
             for _, player in pairs(game.Players:GetPlayers()) do
-                if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                    player.Character.HumanoidRootPart.Size = Vector3.new(10, 10, 10)
-                    player.Character.HumanoidRootPart.Transparency = 0.5
+                if player ~= game.Players.LocalPlayer and player.Character then
+                    if player.Character:FindFirstChild("HumanoidRootPart") then
+                        player.Character.HumanoidRootPart.Size = Vector3.new(2, 2, 1)
+                        player.Character.HumanoidRootPart.Transparency = 1
+                    end
                 end
             end
+            return
         end
+        
+        -- Function to modify hitbox
+        local function updateHitbox(player)
+            if player ~= game.Players.LocalPlayer and 
+               player.Team ~= game.Players.LocalPlayer.Team and 
+               player.Character and 
+               player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.Size = Vector3.new(5, 5, 5)
+                player.Character.HumanoidRootPart.Transparency = 0.7
+                player.Character.HumanoidRootPart.CanCollide = false
+            end
+        end
+        
+        -- Update existing players
+        for _, player in pairs(game.Players:GetPlayers()) do
+            updateHitbox(player)
+        end
+        
+        -- Update for new players
+        game.Players.PlayerAdded:Connect(function(player)
+            player.CharacterAdded:Connect(function()
+                if getgenv().HitboxExpander then
+                    updateHitbox(player)
+                end
+            end)
+        end)
     end,
 })
 
@@ -847,19 +932,42 @@ SoundTab:CreateToggle({
     Flag = "MuteGuns",
     Callback = function(Value)
         getgenv().MuteGuns = Value
+        
         local mt = getrawmetatable(game)
-        local oldNamecall = mt.__namecall
         setreadonly(mt, false)
+        local old = mt.__namecall
         
         mt.__namecall = newcclosure(function(self, ...)
             local args = {...}
             local method = getnamecallmethod()
             
-            if getgenv().MuteGuns and method == "PlaySound" and args[1] and args[1]:find("Gun") then
-                return
+            if getgenv().MuteGuns then
+                if method == "Play" and self:IsA("Sound") and 
+                   (self.Name:find("Gun") or self.Name:find("Fire") or self.Name:find("Shoot")) then
+                    return
+                end
             end
-            return oldNamecall(self, ...)
+            return old(self, ...)
         end)
+        
+        -- Also mute existing gun sounds
+        if Value then
+            for _, sound in pairs(game:GetDescendants()) do
+                if sound:IsA("Sound") and 
+                   (sound.Name:find("Gun") or sound.Name:find("Fire") or sound.Name:find("Shoot")) then
+                    sound.Volume = 0
+                end
+            end
+        else
+            for _, sound in pairs(game:GetDescendants()) do
+                if sound:IsA("Sound") and 
+                   (sound.Name:find("Gun") or sound.Name:find("Fire") or sound.Name:find("Shoot")) then
+                    sound.Volume = sound.OriginalVolume.Value or 0.5
+                end
+            end
+        end
+        
+        setreadonly(mt, true)
     end,
 })
 

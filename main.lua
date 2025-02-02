@@ -6,6 +6,7 @@ local placeId = game.PlaceId
 
 local supportedGames = {
     [2788229376] = "DaHood.lua",
+    [286090429] = "Arsenal.lua" -- Added Arsenal game ID
 }
 
 local function loadGameScript()
@@ -19,5 +20,3 @@ local function loadGameScript()
 end
 
 loadGameScript()
-
-
